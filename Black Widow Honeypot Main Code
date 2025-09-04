@@ -1,0 +1,256 @@
+import logging
+import os
+from datetime import datetime
+from flask import Flask, request, redirect, url_for, render_template_string
+
+# Create the Flask application instance
+app = Flask(__name__)
+
+# --- Configuration ---
+LOG_FILE = "honeypot_log.txt"
+
+# Configure logging to write to the specified file
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format='%(message)s'
+)
+
+# A simple function to log all relevant information for an action
+def log_action(message, data=None):
+    """
+    Logs an action to the honeypot log file with a timestamp, IP, and user agent.
+    """
+    ip = request.remote_addr
+    agent = request.headers.get("User-Agent", "Unknown")
+    time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{time}] IP: {ip} | Agent: {agent} | ACTION: {message}"
+    
+    if data:
+        # Append additional data if provided
+        log_entry += f" | DATA: {data}"
+    
+    logging.info(log_entry)
+    print(log_entry) # Also print to console for real-time monitoring
+
+# --- HTML & CSS for the single file ---
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background-color: #161b22;
+            padding: 30px 40px;
+            border-radius: 12px;
+            border: 1px solid #30363d;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 500px;
+            box-sizing: border-box;
+            text-align: center;
+        }
+        h2 {
+            color: #58a6ff;
+            margin-top: 0;
+            font-weight: 700;
+        }
+        input[type="text"],
+        input[type="password"],
+        input[type="file"],
+        input[type="submit"] {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        input[type="submit"] {
+            background-color: #238636;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            font-weight: 700;
+        }
+        input[type="submit"]:hover {
+            background-color: #2ea043;
+        }
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        li {
+            margin: 10px 0;
+        }
+        a {
+            color: #58a6ff;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        a:hover {
+            color: #79c0ff;
+            text-decoration: underline;
+        }
+        .message-box {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #238636;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            font-weight: 700;
+        }
+        .upload-form {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+    </style>
+    <script>
+        // Use a function to show a custom message box instead of alert()
+        function showMessage(message) {
+            const msgBox = document.createElement('div');
+            msgBox.className = 'message-box';
+            msgBox.innerText = message;
+            document.body.appendChild(msgBox);
+
+            setTimeout(() => {
+                msgBox.style.opacity = 1;
+            }, 10);
+
+            setTimeout(() => {
+                msgBox.style.opacity = 0;
+                setTimeout(() => msgBox.remove(), 500);
+            }, 3000);
+        }
+
+        function fakeShell() {
+            const cmd = prompt("Enter a shell command:");
+            if (cmd) {
+                fetch("/shell", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: "cmd=" + encodeURIComponent(cmd)
+                }).then(res => res.text())
+                  .then(text => showMessage(text))
+                  .catch(err => showMessage("Request failed."));
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        {% if page == 'login' %}
+            <h2>Login to Admin Panel</h2>
+            <form method="POST" action="/login">
+                Username: <input name="username" type="text" placeholder="admin"><br>
+                Password: <input name="password" type="password" placeholder="password"><br>
+                <input type="submit" value="Login">
+            </form>
+        {% elif page == 'dashboard' %}
+            <h2>Welcome to the Admin Dashboard</h2>
+            <p>Click an action:</p>
+            <ul>
+                <li><a href="/export">Export Database</a></li>
+                <li><a href="/delete-users">Delete All Users</a></li>
+                <li><a href="/shutdown">Shutdown Server</a></li>
+                <li><a href="#" onclick="fakeShell()">Open Dev Shell</a></li>
+            </ul>
+            <div class="upload-form">
+                <form action="/upload" method="POST" enctype="multipart/form-data">
+                    Upload File: <input type="file" name="file">
+                    <input type="submit" value="Upload">
+                </form>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
+"""
+
+# --- Flask Routes ---
+
+@app.route("/")
+def home():
+    """Renders the fake login page."""
+    log_action("Landing Page Accessed")
+    return render_template_string(HTML_TEMPLATE, title="Admin Login", page="login")
+
+@app.route("/login", methods=["POST"])
+def login():
+    """Logs a login attempt and redirects to the fake dashboard."""
+    username = request.form.get("username", "No username")
+    password = request.form.get("password", "No password")
+    log_action("Login Attempt", data=f"Username: {username} | Password: {password}")
+    return redirect(url_for("dashboard"))
+
+@app.route("/dashboard")
+def dashboard():
+    """Renders the fake admin dashboard."""
+    log_action("Entered Fake Dashboard")
+    return render_template_string(HTML_TEMPLATE, title="Admin Dashboard", page="dashboard")
+
+@app.route("/export")
+def export():
+    """Logs an attempt to export the database."""
+    log_action("Attempted Database Export")
+    return "Exporting database... Please wait."
+
+@app.route("/delete-users")
+def delete_users():
+    """Logs an attempt to delete all users."""
+    log_action("Attempted to Delete All Users")
+    return "Deleting users... Please wait."
+
+@app.route("/shutdown")
+def shutdown():
+    """Logs an attempt to shut down the server."""
+    log_action("Attempted Server Shutdown")
+    return "Shutting down... Please wait."
+
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    """Logs an attempted file upload."""
+    try:
+        file = request.files.get("file")
+        filename = file.filename if file else "No file"
+        log_action("Attempted File Upload", data=f"Filename: {filename}")
+        return "File uploaded successfully."
+    except Exception as e:
+        log_action("File Upload Error", data=f"Error: {str(e)}")
+        return "File upload failed."
+
+@app.route("/shell", methods=["POST"])
+def fake_shell():
+    """Logs an attempted shell command."""
+    command = request.form.get("cmd", "No command")
+    log_action("Ran Fake Shell Command", data=f"Command: {command}")
+    return f"Command '{command}' executed. Output: Access denied."
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
