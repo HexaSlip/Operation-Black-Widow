@@ -1,13 +1,14 @@
 import logging
 import os
 from datetime import datetime
-from flask import Flask, request, redirect, url_for, render_template_string
+from flask import Flask, request, redirect, url_for, render_template_string, send_from_directory
 
 # Create the Flask application instance
 app = Flask(__name__)
 
 # --- Configuration ---
 LOG_FILE = "honeypot_log.txt"
+COMPANY_NAME = "SecureSolutions, Inc."
 
 # Configure logging to write to the specified file
 logging.basicConfig(
@@ -65,10 +66,30 @@ HTML_TEMPLATE = """
             box-sizing: border-box;
             text-align: center;
         }
+        .logo-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .logo-svg {
+            width: 30px;
+            height: 30px;
+        }
         h2 {
             color: #58a6ff;
             margin-top: 0;
             font-weight: 700;
+        }
+        h3 {
+            color: #c9d1d9;
+        }
+        .error-message {
+            color: #f85149;
+            font-weight: bold;
+            margin: 10px 0;
+            display: {{ 'block' if error else 'none' }};
         }
         input[type="text"],
         input[type="password"],
@@ -130,9 +151,26 @@ HTML_TEMPLATE = """
             align-items: center;
             gap: 10px;
         }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #58a6ff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .copyright {
+            margin-top: 20px;
+            font-size: 0.8em;
+            color: #6a737d;
+        }
     </style>
     <script>
-        // Use a function to show a custom message box instead of alert()
         function showMessage(message) {
             const msgBox = document.createElement('div');
             msgBox.className = 'message-box';
@@ -166,20 +204,37 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         {% if page == 'login' %}
-            <h2>Login to Admin Panel</h2>
+            <div class="logo-container">
+                <svg class="logo-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                </svg>
+                <h2>{{ company_name }}</h2>
+            </div>
+            <h3>Admin Portal Login</h3>
+            <p class="error-message">{{ error }}</p>
             <form method="POST" action="/login">
                 Username: <input name="username" type="text" placeholder="admin"><br>
                 Password: <input name="password" type="password" placeholder="password"><br>
                 <input type="submit" value="Login">
             </form>
+            <div class="copyright">
+                <p>&copy; 2025 {{ company_name }} v3.2.1</p>
+            </div>
         {% elif page == 'dashboard' %}
-            <h2>Welcome to the Admin Dashboard</h2>
+            <div class="logo-container">
+                <svg class="logo-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                </svg>
+                <h2>{{ company_name }}</h2>
+            </div>
+            <h3>Admin Dashboard</h3>
             <p>Click an action:</p>
             <ul>
                 <li><a href="/export">Export Database</a></li>
                 <li><a href="/delete-users">Delete All Users</a></li>
                 <li><a href="/shutdown">Shutdown Server</a></li>
                 <li><a href="#" onclick="fakeShell()">Open Dev Shell</a></li>
+                <li><a href="/download/database_backup.zip">Download Database Backup</a></li>
             </ul>
             <div class="upload-form">
                 <form action="/upload" method="POST" enctype="multipart/form-data">
@@ -187,6 +242,18 @@ HTML_TEMPLATE = """
                     <input type="submit" value="Upload">
                 </form>
             </div>
+            <div class="copyright">
+                <p>&copy; 2025 {{ company_name }} v3.2.1</p>
+            </div>
+        {% elif page == 'loading' %}
+            <h2>Processing Request...</h2>
+            <div class="spinner"></div>
+            <p>{{ loading_message }}</p>
+            <script>
+                setTimeout(() => {
+                    window.location.href = "{{ url_for('dashboard') }}";
+                }, 3000); // Redirect after 3 seconds
+            </script>
         {% endif %}
     </div>
 </body>
@@ -199,39 +266,48 @@ HTML_TEMPLATE = """
 def home():
     """Renders the fake login page."""
     log_action("Landing Page Accessed")
-    return render_template_string(HTML_TEMPLATE, title="Admin Login", page="login")
+    return render_template_string(HTML_TEMPLATE, title=f"{COMPANY_NAME} Admin Login", page="login", company_name=COMPANY_NAME)
 
 @app.route("/login", methods=["POST"])
 def login():
-    """Logs a login attempt and redirects to the fake dashboard."""
+    """Logs a login attempt and returns an error message."""
     username = request.form.get("username", "No username")
     password = request.form.get("password", "No password")
     log_action("Login Attempt", data=f"Username: {username} | Password: {password}")
-    return redirect(url_for("dashboard"))
+    
+    # Always return a fake error message to make it look realistic
+    error_message = "Invalid username or password."
+    return render_template_string(
+        HTML_TEMPLATE,
+        title=f"{COMPANY_NAME} Admin Login",
+        page="login",
+        error=error_message,
+        company_name=COMPANY_NAME
+    )
 
 @app.route("/dashboard")
 def dashboard():
     """Renders the fake admin dashboard."""
     log_action("Entered Fake Dashboard")
-    return render_template_string(HTML_TEMPLATE, title="Admin Dashboard", page="dashboard")
+    return render_template_string(HTML_TEMPLATE, title=f"{COMPANY_NAME} Admin Dashboard", page="dashboard", company_name=COMPANY_NAME)
 
 @app.route("/export")
 def export():
-    """Logs an attempt to export the database."""
+    """Logs an attempt to export the database and shows a fake loading page."""
     log_action("Attempted Database Export")
-    return "Exporting database... Please wait."
+    return render_template_string(HTML_TEMPLATE, title="Exporting...", page="loading", loading_message="Exporting database...", company_name=COMPANY_NAME)
 
 @app.route("/delete-users")
 def delete_users():
-    """Logs an attempt to delete all users."""
+    """Logs an attempt to delete all users and shows a fake loading page."""
     log_action("Attempted to Delete All Users")
-    return "Deleting users... Please wait."
+    return render_template_string(HTML_TEMPLATE, title="Deleting Users...", page="loading", loading_message="Deleting all user data...", company_name=COMPANY_NAME)
 
 @app.route("/shutdown")
 def shutdown():
-    """Logs an attempt to shut down the server."""
+    """Logs an attempt to shut down the server and shows a fake loading page."""
     log_action("Attempted Server Shutdown")
-    return "Shutting down... Please wait."
+    return render_template_string(HTML_TEMPLATE, title="Shutting Down...", page="loading", loading_message="Shutting down server...", company_name=COMPANY_NAME)
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
@@ -252,5 +328,32 @@ def fake_shell():
     log_action("Ran Fake Shell Command", data=f"Command: {command}")
     return f"Command '{command}' executed. Output: Access denied."
 
+@app.route("/download/<path:filename>")
+def download_file(filename):
+    """Logs an attempted file download."""
+    # Log the attempted download
+    log_action("Attempted to Download File", data=f"Filename: {filename}")
+    
+    # Send the fake file from the "deceptive_files" directory
+    # The 'as_attachment' flag makes the browser download the file instead of displaying it
+    return send_from_directory('deceptive_files', filename, as_attachment=True)
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+```eof
+```markdown:Fake Database Backup:deceptive_files/database_backup.zip
+This is a fake database backup file. 
+
+No sensitive information is contained in this file. It is a decoy used for security research.
+```eof
+***
+
+### Instructions
+
+Remember to follow these steps to get your updated honeypot running:
+
+1.  **Save the first code block** into your `honeypot.py` file, replacing all the old content.
+2.  **Ensure the `deceptive_files` folder exists** in the same directory as your `honeypot.py` file. If not, create it.
+3.  **Save the second code block** into a new file named `database_backup.zip` and place it inside the `deceptive_files` folder.
+
+Your honeypot now has all the features to be a highly effective and convincing decoy!
